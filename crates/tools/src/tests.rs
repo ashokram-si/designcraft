@@ -174,6 +174,12 @@ fn cmd_click_selects_the_object_behind_and_wraps() {
     // A plain click on the stack picks the front object, as before.
     let sel = Selection::items(vec![back]);
     assert_eq!(click(&mut t, &ctx(&d, &sel, &c, &l), p, Mods::default()), set(front));
+    // Quick Cmd-clicks (a double click's second press) keep stepping back instead of
+    // starting to edit the front frame's text.
+    let sel = Selection::items(vec![front]);
+    let mut press = PointerEvent::new(PointerKind::Down, p.x, p.y).with_mods(cmd);
+    press.clicks = 2;
+    assert_eq!(t.pointer(&ctx(&d, &sel, &c, &l), &press), set(middle));
 }
 
 #[test]

@@ -725,8 +725,12 @@ impl Tool for SelectionTool {
             self.drag = Drag::None;
             return vec![Action::Exec("object.fit".into(), json!({"mode": "fitFrameToContent", "axis": fitting_axis(cx, h)}))];
         }
+        // Quick Cmd-clicks keep stepping through the objects behind (see `next_behind`); they
+        // are not double clicks into text or content.
+        let cycling = !self.direct && ev.mods.cmd && !ev.mods.shift;
         // The second press of a double click on a text frame: edit its text.
-        if matches!(ev.kind, PointerKind::Down | PointerKind::DoubleClick)
+        if !cycling
+            && matches!(ev.kind, PointerKind::Down | PointerKind::DoubleClick)
             && ev.click_count() == 2
             && let Some(actions) = edit_text_at(cx, p)
         {
@@ -736,6 +740,7 @@ impl Tool for SelectionTool {
         // The second press of a double click on a frame with content: toggle between the frame and
         // its content.
         if !self.direct
+            && !cycling
             && matches!(ev.kind, PointerKind::Down | PointerKind::DoubleClick)
             && ev.click_count() == 2
             && let Some(id) = cx.hit(p).map(|(_, id)| cx.doc.top_level_of(id).unwrap_or(id))
@@ -810,6 +815,19 @@ impl Tool for SelectionTool {
                         Drag::Resize { handle, start: p, from: cx.layout.xf(loc.spread).inverse().transform_rect_bbox(b), spread: loc.spread };
                     return vec![Action::Begin("Resize".into())];
                 }
+                // Cmd-click (Ctrl-click on Windows and Linux) selects the next object down under
+                // the pointer, wrapping from the bottom one back to the top, so objects hidden
+                // behind others can be picked on the canvas. A drag from there moves what it
+                // selected.
+                if cycling
+                    && let Some(id) = next_behind(cx, p)
+                {
+                    self.drag = Drag::Pending { start: p, hit: true, content: false };
+                    if cx.selection.items == [id] && !cx.selection.content {
+                        return vec![];
+                    }
+                    return vec![Action::Exec("selection.set".into(), json!({"ids": [id.0], "content": false}))];
+                }
                 // The content grabber: select the frame's content; a drag moves it.
                 if !self.direct
                     && !ev.mods.shift
@@ -829,21 +847,6 @@ impl Tool for SelectionTool {
                 {
                     self.drag = Drag::Pending { start: p, hit: true, content: false };
                     return vec![Action::Exec("layout.overrideParentItems".into(), json!({"page": page, "ids": [id.0]}))];
-                }
-                // Cmd-click (Ctrl-click on Windows and Linux) selects the next object down under
-                // the pointer, wrapping from the bottom one back to the top, so objects hidden
-                // behind others can be picked on the canvas. A drag from there moves what it
-                // selected.
-                if !self.direct
-                    && ev.mods.cmd
-                    && !ev.mods.shift
-                    && let Some(id) = next_behind(cx, p)
-                {
-                    self.drag = Drag::Pending { start: p, hit: true, content: false };
-                    if cx.selection.items == [id] && !cx.selection.content {
-                        return vec![];
-                    }
-                    return vec![Action::Exec("selection.set".into(), json!({"ids": [id.0], "content": false}))];
                 }
                 match cx.hit(p) {
                     Some((sr, id)) => {
