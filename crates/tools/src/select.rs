@@ -316,6 +316,20 @@ impl SelectionTool {
     }
 }
 
+/// The object a Cmd-click at `p` selects: the one under the selected object in the stack under
+/// the pointer, or the frontmost when the selection is not one object in that stack.
+fn next_behind(cx: &ToolContext, p: Point) -> Option<ItemId> {
+    let stack = cx.hits(p);
+    let selected = match cx.selection.items.as_slice() {
+        [id] => Some(cx.doc.top_level_of(*id).unwrap_or(*id)),
+        _ => None,
+    };
+    match selected.and_then(|id| stack.iter().position(|x| *x == id)) {
+        Some(i) => stack.get((i + 1) % stack.len()).copied(),
+        None => stack.first().copied(),
+    }
+}
+
 /// A frame whose content moves on its own: a placed graphic or items pasted into it.
 pub fn holds_content(it: &Item) -> bool {
     !it.is_group() && (matches!(it.content, Content::Graphic(_)) || it.has_nested_items())
@@ -815,6 +829,21 @@ impl Tool for SelectionTool {
                 {
                     self.drag = Drag::Pending { start: p, hit: true, content: false };
                     return vec![Action::Exec("layout.overrideParentItems".into(), json!({"page": page, "ids": [id.0]}))];
+                }
+                // Cmd-click (Ctrl-click on Windows and Linux) selects the next object down under
+                // the pointer, wrapping from the bottom one back to the top, so objects hidden
+                // behind others can be picked on the canvas. A drag from there moves what it
+                // selected.
+                if !self.direct
+                    && ev.mods.cmd
+                    && !ev.mods.shift
+                    && let Some(id) = next_behind(cx, p)
+                {
+                    self.drag = Drag::Pending { start: p, hit: true, content: false };
+                    if cx.selection.items == [id] && !cx.selection.content {
+                        return vec![];
+                    }
+                    return vec![Action::Exec("selection.set".into(), json!({"ids": [id.0], "content": false}))];
                 }
                 match cx.hit(p) {
                     Some((sr, id)) => {

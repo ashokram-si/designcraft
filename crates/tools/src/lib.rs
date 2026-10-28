@@ -248,6 +248,13 @@ impl ToolContext<'_> {
         self.doc.hit_item(si, sp, self.tol(4.0)).map(|id| (sr, id))
     }
 
+    /// The items under a point on a document spread, frontmost first, as [`Self::hit`] sees
+    /// them (a group is one item). Empty on parent spreads and off the spreads.
+    pub fn hits(&self, p: Point) -> Vec<ItemId> {
+        let Some((SpreadRef::Doc(si), sp)) = self.layout.spread_at(p) else { return Vec::new() };
+        self.doc.hit_items(si, sp, self.tol(4.0)).collect()
+    }
+
     /// The frontmost text frame under `p`, looking inside groups. [`Self::hit`] stops at the
     /// group, so a loaded text cursor over a text frame in a group found nothing to thread into
     /// (gaps 27); InDesign threads into it.

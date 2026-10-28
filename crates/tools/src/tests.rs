@@ -146,6 +146,54 @@ fn cmd_shift_click_overrides_parent_item() {
     assert_eq!(a, vec![Action::Exec("layout.overrideParentItems".into(), serde_json::json!({"page": 0, "ids": [pid.0]}))]);
 }
 
+/// Each Cmd-click selects the next object down under the pointer, then wraps to the front one;
+/// a plain click still picks the front one.
+#[test]
+fn cmd_click_selects_the_object_behind_and_wraps() {
+    let mut d = Document::new(&NewDocument::default());
+    let lid = d.default_layer();
+    let mut frame = |r: Rect| d.add_text_frame(SpreadRef::Doc(0), r, lid, "x", ParaFormat::default()).unwrap().0;
+    let back = frame(Rect::new(100.0, 100.0, 300.0, 300.0));
+    let middle = frame(Rect::new(120.0, 120.0, 280.0, 280.0));
+    let front = frame(Rect::new(140.0, 140.0, 260.0, 260.0));
+    frame(Rect::new(400.0, 400.0, 450.0, 450.0));
+    let (c, l) = (Cache::new(), CanvasLayout::new(&d, false));
+    let off = l.xf(SpreadRef::Doc(0)).translation();
+    let p = Point::new(200.0 + off.x, 200.0 + off.y);
+    let cmd = Mods { cmd: true, ..Default::default() };
+    let set = |id: ItemId| vec![Action::Exec("selection.set".into(), serde_json::json!({"ids": [id.0], "content": false}))];
+    let mut t = create("selection");
+    let mut sel = Selection::default();
+    for want in [front, middle, back, front] {
+        assert_eq!(click(&mut t, &ctx(&d, &sel, &c, &l), p, cmd), set(want));
+        sel = Selection::items(vec![want]);
+    }
+    // Selected elsewhere: the next Cmd-click starts again from the front.
+    let elsewhere = Selection::items(vec![ItemId(u64::MAX)]);
+    assert_eq!(click(&mut t, &ctx(&d, &elsewhere, &c, &l), p, cmd), set(front));
+    // A plain click on the stack picks the front object, as before.
+    let sel = Selection::items(vec![back]);
+    assert_eq!(click(&mut t, &ctx(&d, &sel, &c, &l), p, Mods::default()), set(front));
+}
+
+#[test]
+fn cmd_click_skips_hidden_objects() {
+    let mut d = Document::new(&NewDocument::default());
+    let lid = d.default_layer();
+    let mut frame = |r: Rect| d.add_text_frame(SpreadRef::Doc(0), r, lid, "x", ParaFormat::default()).unwrap().0;
+    let back = frame(Rect::new(100.0, 100.0, 300.0, 300.0));
+    let hidden = frame(Rect::new(120.0, 120.0, 280.0, 280.0));
+    let front = frame(Rect::new(140.0, 140.0, 260.0, 260.0));
+    d.item_mut(hidden).unwrap().hidden = true;
+    let (c, l) = (Cache::new(), CanvasLayout::new(&d, false));
+    let off = l.xf(SpreadRef::Doc(0)).translation();
+    let p = Point::new(200.0 + off.x, 200.0 + off.y);
+    let mut t = create("selection");
+    let sel = Selection::items(vec![front]);
+    let a = click(&mut t, &ctx(&d, &sel, &c, &l), p, Mods { cmd: true, ..Default::default() });
+    assert_eq!(a, vec![Action::Exec("selection.set".into(), serde_json::json!({"ids": [back.0], "content": false}))]);
+}
+
 /// On a page whose parent B is based on A, A's items are hit too, B's win where they overlap, and
 /// nothing is hit when the page hides parent items.
 #[test]

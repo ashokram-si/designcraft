@@ -617,19 +617,19 @@ impl Document {
     /// Hit test: the frontmost visible, unlocked-layer item on spread `si` containing `p` (spread space).
     /// Frames hit by area if they have a fill or are text/graphic frames; otherwise near the outline.
     pub fn hit_item(&self, si: usize, p: Point, tol: f64) -> Option<ItemId> {
-        let sp = self.spreads.get(si)?;
-        let mut items: Vec<&Arc<Item>> = sp.items.iter().collect();
+        self.hit_items(si, p, tol).next()
+    }
+
+    /// Every top-level item under `p` on document spread `si`, frontmost first; the items
+    /// [`Self::hit_item`] could pick, skipping hidden ones and those on hidden or locked layers.
+    pub fn hit_items(&self, si: usize, p: Point, tol: f64) -> impl Iterator<Item = ItemId> + '_ {
+        let mut items: Vec<&Arc<Item>> = self.spreads.get(si).map(|sp| sp.items.iter().collect()).unwrap_or_default();
         items.sort_by_key(|i| self.layer_rank(i.layer));
-        for it in items.into_iter().rev() {
-            let layer = self.layer(it.layer);
-            if it.hidden || layer.is_some_and(|l| !l.visible || l.locked) {
-                continue;
-            }
-            if item_hit(it, p, tol) {
-                return Some(it.id);
-            }
-        }
-        None
+        items
+            .into_iter()
+            .rev()
+            .filter(move |it| !it.hidden && !self.layer(it.layer).is_some_and(|l| !l.visible || l.locked) && item_hit(it, p, tol))
+            .map(|it| it.id)
     }
 
     /// The first item on a document or parent spread whose geometry isn't finite
