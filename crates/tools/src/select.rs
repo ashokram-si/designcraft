@@ -344,8 +344,18 @@ fn next_behind(cx: &ToolContext, p: Point) -> Option<ItemId> {
 }
 
 /// Whether a press with the Selection tool steps through the objects behind (see `next_behind`):
-/// Cmd (Ctrl on Windows and Linux) without Shift. Quick Cmd-clicks are not double clicks into
-/// text or content.
+/// Cmd (Ctrl on Windows and Linux) without Shift.
+///
+/// The rule for such a press:
+/// - What is drawn on the current selection takes it first, as without Cmd: a loaded text cursor
+///   and text ports, path-type brackets, content and corner handles, the rotate zone and the
+///   resize handles (a Cmd-drag there scales the content).
+/// - Anywhere else on an object it steps behind, through the stack a plain click takes the first
+///   of ([`ToolContext::hits`]), on document and parent spreads alike, even over the content
+///   grabber.
+/// - A second press in quick succession, or a double click sent as such, steps again instead of
+///   editing text or entering content.
+/// - On one of several selected objects it steps on release, so a Cmd-drag moves them all.
 fn steps_behind(direct: bool, ev: &PointerEvent) -> bool {
     !direct && ev.mods.cmd && !ev.mods.shift
 }

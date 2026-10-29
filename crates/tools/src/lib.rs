@@ -239,23 +239,18 @@ impl ToolContext<'_> {
         px / self.zoom.max(1e-9)
     }
 
-    /// Frontmost unlocked item under a canvas point.
+    /// The frontmost item under a canvas point: the first of [`Self::hits`].
     pub fn hit(&self, p: Point) -> Option<(SpreadRef, ItemId)> {
         let (sr, sp) = self.layout.spread_at(p)?;
-        let SpreadRef::Doc(si) = sr else {
-            return self.hit_parent(sr, sp);
-        };
-        self.doc.hit_item(si, sp, self.tol(4.0)).map(|id| (sr, id))
+        self.doc.hit_stack(sr, sp, self.tol(4.0)).next().map(|id| (sr, id))
     }
 
-    /// The items under a point, frontmost first, as [`Self::hit`] sees them (a group is one
-    /// item), on document and parent spreads alike. Empty off the spreads.
+    /// The items under a point, frontmost first, on document and parent spreads alike: the
+    /// stack [`Self::hit`] takes the first of ([`designcraft_doc::Document::hit_stack`]). Empty off
+    /// the spreads.
     pub fn hits(&self, p: Point) -> Vec<ItemId> {
         let Some((sr, sp)) = self.layout.spread_at(p) else { return Vec::new() };
-        match sr {
-            SpreadRef::Doc(si) => self.doc.hit_items(si, sp, self.tol(4.0)).collect(),
-            _ => self.parent_hits(sr, sp).collect(),
-        }
+        self.doc.hit_stack(sr, sp, self.tol(4.0)).collect()
     }
 
     /// The frontmost text frame under `p`, looking inside groups. [`Self::hit`] stops at the
@@ -305,17 +300,6 @@ impl ToolContext<'_> {
                 !it.locked && !it.hidden && !layer.is_some_and(|l| !l.visible || l.locked) && designcraft_doc::edit_hit(it, sp - *off, self.tol(4.0))
             })
             .map(|(it, _)| (page, it.id))
-    }
-
-    fn hit_parent(&self, sr: SpreadRef, sp: Point) -> Option<(SpreadRef, ItemId)> {
-        self.parent_hits(sr, sp).next().map(|id| (sr, id))
-    }
-
-    /// The items under `sp` on parent spread `sr`, frontmost first, by [`Self::hit_parent`]'s rules.
-    fn parent_hits(&self, sr: SpreadRef, sp: Point) -> impl Iterator<Item = ItemId> + '_ {
-        let tol = self.tol(4.0);
-        let items = self.doc.spread(sr).map(|s| s.items.as_slice()).unwrap_or_default();
-        items.iter().rev().filter(move |it| !it.locked && designcraft_doc::edit_hit(it, sp, tol)).map(|it| it.id)
     }
 
     /// Spread-space → canvas transform of the spread holding item `id`.

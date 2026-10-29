@@ -621,14 +621,25 @@ impl Document {
     }
 
     /// Every top-level item under `p` on document spread `si`, frontmost first; the items
-    /// [`Self::hit_item`] could pick, skipping hidden ones and those on hidden or locked layers.
+    /// [`Self::hit_item`] could pick (see [`Self::hit_stack`]).
     pub fn hit_items(&self, si: usize, p: Point, tol: f64) -> impl Iterator<Item = ItemId> + '_ {
-        let mut items: Vec<&Arc<Item>> = self.spreads.get(si).map(|sp| sp.items.iter().collect()).unwrap_or_default();
+        self.hit_stack(SpreadRef::Doc(si), p, tol)
+    }
+
+    /// Every top-level item under `p` on spread `sr` (spread space), frontmost first as drawn: by
+    /// layer, then stacking order. Hidden items and items on hidden or locked layers are skipped,
+    /// and on parent spreads locked items too. The one stack every pick reads: a click takes the
+    /// first, a Cmd-click steps through the rest.
+    pub fn hit_stack(&self, sr: SpreadRef, p: Point, tol: f64) -> impl Iterator<Item = ItemId> + '_ {
+        let parent = matches!(sr, SpreadRef::Parent(_));
+        let mut items: Vec<&Arc<Item>> = self.spread(sr).map(|sp| sp.items.iter().collect()).unwrap_or_default();
         items.sort_by_key(|i| self.layer_rank(i.layer));
         items
             .into_iter()
             .rev()
-            .filter(move |it| !it.hidden && !self.layer(it.layer).is_some_and(|l| !l.visible || l.locked) && item_hit(it, p, tol))
+            .filter(move |it| {
+                !it.hidden && !(parent && it.locked) && !self.layer(it.layer).is_some_and(|l| !l.visible || l.locked) && item_hit(it, p, tol)
+            })
             .map(|it| it.id)
     }
 

@@ -242,6 +242,33 @@ fn cmd_click_selects_the_object_behind_on_a_parent_spread() {
         assert_eq!(click(&mut t, &ctx(&d, &sel, &c, &l), p, cmd), set(want));
         sel = Selection::items(vec![want]);
     }
+    // A plain click and a Cmd-click read the same stack: a hidden parent item is in neither.
+    d.item_mut(front).unwrap().hidden = true;
+    let cx = ctx(&d, &sel, &c, &l);
+    assert_eq!(cx.hit(p).map(|(_, id)| id), Some(back));
+    assert_eq!(cx.hits(p), vec![back]);
+    assert_eq!(click(&mut t, &cx, p, cmd), set(back));
+}
+
+/// What is drawn on the selection takes a Cmd press first: on a resize handle it resizes (a
+/// Cmd-drag there scales the content), even with objects behind the handle.
+#[test]
+fn a_cmd_press_on_a_resize_handle_resizes() {
+    let mut d = Document::new(&NewDocument::default());
+    let lid = d.default_layer();
+    let mut frame = |r: Rect| d.add_text_frame(SpreadRef::Doc(0), r, lid, "x", ParaFormat::default()).unwrap().0;
+    frame(Rect::new(100.0, 100.0, 300.0, 300.0));
+    let front = frame(Rect::new(140.0, 140.0, 260.0, 260.0));
+    let (c, l) = (Cache::new(), CanvasLayout::new(&d, false));
+    let off = l.xf(SpreadRef::Doc(0)).translation();
+    let sel = Selection::items(vec![front]);
+    let corner = Point::new(260.0 + off.x, 260.0 + off.y);
+    let mut t = create("selection");
+    let a = t.pointer(
+        &ctx(&d, &sel, &c, &l),
+        &PointerEvent::new(PointerKind::Down, corner.x, corner.y).with_mods(Mods { cmd: true, ..Default::default() }),
+    );
+    assert_eq!(a, vec![Action::Begin("Resize".into())]);
 }
 
 #[test]
