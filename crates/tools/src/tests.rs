@@ -220,6 +220,12 @@ fn cmd_drag_on_a_multiple_selection_moves_it_all() {
     let sel = Selection::items(vec![front]);
     let a = click(&mut t, &ctx(&d, &sel, &c, &l), p, cmd);
     assert_eq!(a, vec![Action::Exec("selection.set".into(), serde_json::json!({"ids": [back.0], "content": false}))]);
+
+    // A double click sent as such is a whole click, so on the selection it steps at once.
+    let mut t = create("selection");
+    let a = t.pointer(&cx, &PointerEvent::new(PointerKind::DoubleClick, p.x, p.y).with_mods(cmd));
+    assert_eq!(a, vec![Action::Exec("selection.set".into(), serde_json::json!({"ids": [front.0], "content": false}))]);
+    assert!(t.pointer(&cx, &PointerEvent::new(PointerKind::Up, p.x, p.y).with_mods(cmd)).is_empty());
 }
 
 /// Cmd-click steps behind on a parent spread too.

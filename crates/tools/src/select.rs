@@ -355,7 +355,8 @@ fn next_behind(cx: &ToolContext, p: Point) -> Option<ItemId> {
 ///   grabber.
 /// - A second press in quick succession, or a double click sent as such, steps again instead of
 ///   editing text or entering content.
-/// - On one of several selected objects it steps on release, so a Cmd-drag moves them all.
+/// - On one of several selected objects a press steps on release, so a Cmd-drag moves them all;
+///   a double click sent as such is a whole click and steps at once.
 fn steps_behind(direct: bool, ev: &PointerEvent) -> bool {
     !direct && ev.mods.cmd && !ev.mods.shift
 }
@@ -1258,9 +1259,17 @@ impl Tool for SelectionTool {
                     Drag::None | Drag::Place { .. } => vec![],
                 }
             }
-            // A double click sent as such is the second press: with Cmd it steps behind, as the
-            // canvas's second press does.
-            PointerKind::DoubleClick if cycling => self.pointer_down(cx, ev),
+            // A double click sent as such is a whole click: with Cmd it steps behind, as the
+            // canvas's second press does, and at once, since no drag can follow it (on one of
+            // several selected objects, too).
+            PointerKind::DoubleClick if cycling => {
+                let mut out = self.pointer_down(cx, ev);
+                if let Some(id) = self.behind_release.take() {
+                    self.drag = Drag::None;
+                    out.push(Action::Exec("selection.set".into(), json!({"ids": [id], "content": false})));
+                }
+                out
+            }
             PointerKind::DoubleClick => vec![],
         }
     }
