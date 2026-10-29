@@ -248,11 +248,14 @@ impl ToolContext<'_> {
         self.doc.hit_item(si, sp, self.tol(4.0)).map(|id| (sr, id))
     }
 
-    /// The items under a point on a document spread, frontmost first, as [`Self::hit`] sees
-    /// them (a group is one item). Empty on parent spreads and off the spreads.
+    /// The items under a point, frontmost first, as [`Self::hit`] sees them (a group is one
+    /// item), on document and parent spreads alike. Empty off the spreads.
     pub fn hits(&self, p: Point) -> Vec<ItemId> {
-        let Some((SpreadRef::Doc(si), sp)) = self.layout.spread_at(p) else { return Vec::new() };
-        self.doc.hit_items(si, sp, self.tol(4.0)).collect()
+        let Some((sr, sp)) = self.layout.spread_at(p) else { return Vec::new() };
+        match sr {
+            SpreadRef::Doc(si) => self.doc.hit_items(si, sp, self.tol(4.0)).collect(),
+            _ => self.parent_hits(sr, sp).collect(),
+        }
     }
 
     /// The frontmost text frame under `p`, looking inside groups. [`Self::hit`] stops at the
@@ -305,8 +308,14 @@ impl ToolContext<'_> {
     }
 
     fn hit_parent(&self, sr: SpreadRef, sp: Point) -> Option<(SpreadRef, ItemId)> {
-        let s = self.doc.spread(sr)?;
-        s.items.iter().rev().find(|it| !it.locked && designcraft_doc::edit_hit(it, sp, self.tol(4.0))).map(|it| (sr, it.id))
+        self.parent_hits(sr, sp).next().map(|id| (sr, id))
+    }
+
+    /// The items under `sp` on parent spread `sr`, frontmost first, by [`Self::hit_parent`]'s rules.
+    fn parent_hits(&self, sr: SpreadRef, sp: Point) -> impl Iterator<Item = ItemId> + '_ {
+        let tol = self.tol(4.0);
+        let items = self.doc.spread(sr).map(|s| s.items.as_slice()).unwrap_or_default();
+        items.iter().rev().filter(move |it| !it.locked && designcraft_doc::edit_hit(it, sp, tol)).map(|it| it.id)
     }
 
     /// Spread-space → canvas transform of the spread holding item `id`.

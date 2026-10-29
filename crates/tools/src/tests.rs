@@ -180,6 +180,68 @@ fn cmd_click_selects_the_object_behind_and_wraps() {
     let mut press = PointerEvent::new(PointerKind::Down, p.x, p.y).with_mods(cmd);
     press.clicks = 2;
     assert_eq!(t.pointer(&ctx(&d, &sel, &c, &l), &press), set(middle));
+    // So does a double click sent as such (scripts send one), and a plain one still does nothing.
+    let double = PointerEvent::new(PointerKind::DoubleClick, p.x, p.y);
+    assert_eq!(t.pointer(&ctx(&d, &sel, &c, &l), &double.with_mods(cmd)), set(middle));
+    t.pointer(&ctx(&d, &sel, &c, &l), &PointerEvent::new(PointerKind::Up, p.x, p.y).with_mods(cmd));
+    let mut t = create("selection");
+    let sel = Selection::items(vec![back]);
+    assert!(!t.pointer(&ctx(&d, &sel, &c, &l), &double).iter().any(|a| matches!(a, Action::Exec(id, _) if id == "selection.set")));
+}
+
+/// A Cmd press on one of several selected objects steps behind only on release, so a Cmd-drag
+/// still moves the whole selection.
+#[test]
+fn cmd_drag_on_a_multiple_selection_moves_it_all() {
+    let mut d = Document::new(&NewDocument::default());
+    let lid = d.default_layer();
+    let mut frame = |r: Rect| d.add_text_frame(SpreadRef::Doc(0), r, lid, "x", ParaFormat::default()).unwrap().0;
+    let back = frame(Rect::new(100.0, 100.0, 300.0, 300.0));
+    let front = frame(Rect::new(140.0, 140.0, 260.0, 260.0));
+    let other = frame(Rect::new(400.0, 400.0, 450.0, 450.0));
+    let (c, l) = (Cache::new(), CanvasLayout::new(&d, false));
+    let off = l.xf(SpreadRef::Doc(0)).translation();
+    let p = Point::new(200.0 + off.x, 200.0 + off.y);
+    let cmd = Mods { cmd: true, ..Default::default() };
+    let sel = Selection::items(vec![front, other]);
+    let cx = ctx(&d, &sel, &c, &l);
+    let sets = |a: &[Action]| a.iter().filter(|a| matches!(a, Action::Exec(id, _) if id == "selection.set")).count();
+
+    let mut t = create("selection");
+    let mut a = t.pointer(&cx, &PointerEvent::new(PointerKind::Down, p.x, p.y).with_mods(cmd));
+    a.extend(t.pointer(&cx, &PointerEvent::new(PointerKind::Drag, p.x + 40.0, p.y + 30.0).with_mods(cmd)));
+    a.extend(t.pointer(&cx, &PointerEvent::new(PointerKind::Up, p.x + 40.0, p.y + 30.0).with_mods(cmd)));
+    assert_eq!(sets(&a), 0, "the drag keeps both selected: {a:?}");
+    assert_eq!(a.last(), Some(&Action::Commit));
+
+    // A Cmd-click without a drag steps into the stack, from the front.
+    let a = click(&mut t, &cx, p, cmd);
+    assert_eq!(a, vec![Action::Exec("selection.set".into(), serde_json::json!({"ids": [front.0], "content": false}))]);
+    let sel = Selection::items(vec![front]);
+    let a = click(&mut t, &ctx(&d, &sel, &c, &l), p, cmd);
+    assert_eq!(a, vec![Action::Exec("selection.set".into(), serde_json::json!({"ids": [back.0], "content": false}))]);
+}
+
+/// Cmd-click steps behind on a parent spread too.
+#[test]
+fn cmd_click_selects_the_object_behind_on_a_parent_spread() {
+    let mut d = Document::new(&NewDocument::default());
+    let lid = d.default_layer();
+    let px = d.parents[0].pages.last().unwrap().x;
+    let mut frame = |r: Rect| d.add_text_frame(SpreadRef::Parent(0), r, lid, "x", ParaFormat::default()).unwrap().0;
+    let back = frame(Rect::new(px + 100.0, 100.0, px + 300.0, 300.0));
+    let front = frame(Rect::new(px + 140.0, 140.0, px + 260.0, 260.0));
+    let (c, l) = (Cache::new(), CanvasLayout::new(&d, true));
+    let off = l.xf(SpreadRef::Parent(0)).translation();
+    let p = Point::new(px + 200.0 + off.x, 200.0 + off.y);
+    let cmd = Mods { cmd: true, ..Default::default() };
+    let set = |id: ItemId| vec![Action::Exec("selection.set".into(), serde_json::json!({"ids": [id.0], "content": false}))];
+    let mut t = create("selection");
+    let mut sel = Selection::default();
+    for want in [front, back, front] {
+        assert_eq!(click(&mut t, &ctx(&d, &sel, &c, &l), p, cmd), set(want));
+        sel = Selection::items(vec![want]);
+    }
 }
 
 #[test]

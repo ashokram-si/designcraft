@@ -227,6 +227,9 @@ pub struct SelectionTool {
     /// One of several selected items to make (or stop being) the key object for Align if this
     /// press never becomes a drag.
     key_release: Option<u64>,
+    /// The object behind to select if this Cmd press on one of several selected items never
+    /// becomes a drag (see `next_behind`).
+    behind_release: Option<u64>,
     /// The loaded text cursor.
     loaded: Option<Loaded>,
     /// Frame whose live corners are being edited (diamonds shown).
@@ -235,7 +238,17 @@ pub struct SelectionTool {
 
 impl SelectionTool {
     pub fn new(direct: bool) -> Self {
-        Self { direct, drag: Drag::None, hover_handle: None, guides: vec![], shift_release: None, key_release: None, loaded: None, live: None }
+        Self {
+            direct,
+            drag: Drag::None,
+            hover_handle: None,
+            guides: vec![],
+            shift_release: None,
+            key_release: None,
+            behind_release: None,
+            loaded: None,
+            live: None,
+        }
     }
 
     /// [`bracket_at`] for this tool. With Direct Selection an anchor under the pointer wins: the
@@ -710,6 +723,7 @@ impl SelectionTool {
 
         self.shift_release = None;
         self.key_release = None;
+        self.behind_release = None;
         // Type on a path: a bracket moves where the text starts or ends.
         if !ev.mods.shift
             && let Some((id, end)) = self.bracket_at(cx, p)
@@ -773,6 +787,12 @@ impl SelectionTool {
             && let Some(id) = next_behind(cx, p)
         {
             self.drag = Drag::Pending { start: p, hit: true, content: false };
+            // On one of several selected objects, step on release, so that a Cmd-drag still
+            // moves them all.
+            if cx.selection.items.len() > 1 && cx.hit(p).is_some_and(|(_, h)| cx.selection.contains(cx.doc.top_level_of(h).unwrap_or(h))) {
+                self.behind_release = Some(id.0);
+                return vec![];
+            }
             if cx.selection.items == [id] && !cx.selection.content {
                 return vec![];
             }
@@ -942,6 +962,7 @@ impl SelectionTool {
                 }
                 self.shift_release = None;
                 self.key_release = None;
+                self.behind_release = None;
                 if hit && !cx.selection.items.is_empty() {
                     // Direct Selection on items without content moves (or duplicates) them whole.
                     let content = content && cx.selection.items.iter().any(|i| cx.doc.item(*i).is_some_and(holds_content));
@@ -1184,6 +1205,7 @@ impl Tool for SelectionTool {
                 self.guides.clear();
                 let release = self.shift_release.take();
                 let key = self.key_release.take();
+                let behind = self.behind_release.take();
                 let d = std::mem::replace(&mut self.drag, Drag::None);
                 match d {
                     Drag::Move { .. }
@@ -1198,7 +1220,9 @@ impl Tool for SelectionTool {
                     Drag::Pending { .. } => match (release, key) {
                         (Some(id), _) => vec![Action::Exec("selection.toggle".into(), json!({"id": id}))],
                         (None, Some(id)) => vec![Action::Exec("selection.key".into(), json!({"id": id}))],
-                        (None, None) => vec![],
+                        (None, None) => {
+                            behind.map(|id| Action::Exec("selection.set".into(), json!({"ids": [id], "content": false}))).into_iter().collect()
+                        }
                     },
                     Drag::Marquee { start, cur } => {
                         let r = Rect::from_points(start, cur);
@@ -1224,6 +1248,9 @@ impl Tool for SelectionTool {
                     Drag::None | Drag::Place { .. } => vec![],
                 }
             }
+            // A double click sent as such is the second press: with Cmd it steps behind, as the
+            // canvas's second press does.
+            PointerKind::DoubleClick if cycling => self.pointer_down(cx, ev),
             PointerKind::DoubleClick => vec![],
         }
     }
